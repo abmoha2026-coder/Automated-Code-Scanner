@@ -1,4 +1,4 @@
-# ai_detect_interactive.py 
+# automated_code scanner
 is a lightweight Python utility that:
 Prompts the user for a public GitHub repository (owner/name).
 Retrieves the repository’s file tree via the GitHub API (default main branch).

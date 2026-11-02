@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""
+ai_detect_interactive.py – ask the user for a GitHub repo
+(owner/name) and report any supported AI agents found.
+Supported agents: OpenAI, Anthropic, Gemini, Cohere, LLaMA.
+"""
+
+import base64, re, sys, requests
+
+API = "https://api.github.com"
+
+# ---- patterns that identify each agent ------------------------------------
+PATTERNS = {
+    "OpenAI":    [r"\bimport\s+openai\b", r"OPENAI_API_KEY"],
+    "Anthropic": [r"\bimport\s+anthropic\b", r"ANTHROPIC_API_KEY"],
+    "Gemini":    [r"\bimport\s+google\.generativeai\b", r"GEMINI_API_KEY"],
+    "Cohere":    [r"\bimport\s+cohere\b", r"COHERE_API_KEY"],
+    "LLaMA":     [r"\bLLaMA\b"],
+}
+
+# ---- helper functions -------------------------------------------------------
+def get_json(url: str) -> dict:
+    """GET JSON from GitHub; raise on HTTP error."""
+    resp = requests.get(url, headers={"Accept": "application/vnd.github.v3+json"})
+    resp.raise_for_status()
+    return resp.json()
+
+
+def repo_blob_urls(owner: str, repo: str) -> list:
+    """Return URLs of source‑code blobs in the default (main) branch."""
+    tree = get_json(f"{API}/repos/{owner}/{repo}/git/trees/main?recursive=1")
+    return [
+        node["url"]
+        for node in tree["tree"]
+        if node["type"] == "blob"
+        and node["path"].lower().endswith(
+            (".py", ".js", ".ts", ".ipynb", ".json", ".yaml", ".yml")
+        )
+    ]
+
+
+def blob_text(url: str) -> str:
+    """Decode base64‑encoded blob content."""
+    data = get_json(url)
+    return base64.b64decode(data["content"]).decode(errors="ignore")
+
+
+def agents_in(text: str) -> list:
+    """Return a list of agent names detected in *text*."""
+    found = []
+    for name, regexes in PATTERNS.items():
+        if any(re.search(p, text, flags=re.IGNORECASE) for p in regexes):
+            found.append(name)
+    return found
+
+
+# ---- main interactive flow --------------------------------------------------
+def main() -> None:
+    repo_input = input("Enter GitHub repo (owner/name): ").strip()
+    if "/" not in repo_input:
+        print("Invalid format – use owner/name")
+        sys.exit(1)
+
+    owner, repo = repo_input.split("/", 1)
+
+    results = {}
+    try:
+        for blob_url in repo_blob_urls(owner, repo):
+            agents = agents_in(blob_text(blob_url))
+            if agents:
+                # keep only the filename for nicer output
+                filename = blob_url.split("/")[-1]
+                results[filename] = agents
+    except requests.HTTPError as e:
+        print(f"GitHub error: {e}")
+        sys.exit(1)
+
+    if not results:
+        print("No supported AI agents detected.")
+    else:
+        print("\nAI agents found:")
+        for file, agents in results.items():
+            print(f"  {file} → {', '.join(agents)}")
+
+
+if __name__ == "__main__":
+    main()
